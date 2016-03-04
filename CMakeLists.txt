@@ -82,6 +82,7 @@ SET(binaryen-shell_SOURCES
   src/passes/NameManager.cpp
   src/passes/PostEmscripten.cpp
   src/passes/Print.cpp
+  src/passes/PrintText.cpp
   src/passes/RemoveImports.cpp
   src/passes/RemoveUnusedBrs.cpp
   src/passes/RemoveUnusedNames.cpp
@@ -163,3 +164,15 @@ TARGET_LINK_LIBRARIES(wasm-dis support)
 SET_PROPERTY(TARGET wasm-dis PROPERTY CXX_STANDARD 11)
 SET_PROPERTY(TARGET wasm-dis PROPERTY CXX_STANDARD_REQUIRED ON)
 INSTALL(TARGETS wasm-dis DESTINATION bin)
+
+SET(wasm_text_SOURCES
+  src/pass.cpp
+  src/passes/PrintText.cpp
+  src/wasm-text.cpp
+)
+ADD_EXECUTABLE(wasm-text
+               ${wasm_text_SOURCES})
+TARGET_LINK_LIBRARIES(wasm-text support)
+SET_PROPERTY(TARGET wasm-text PROPERTY CXX_STANDARD 11)
+SET_PROPERTY(TARGET wasm-text PROPERTY CXX_STANDARD_REQUIRED ON)
+INSTALL(TARGETS wasm-text DESTINATION bin)

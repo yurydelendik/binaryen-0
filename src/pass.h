@@ -165,6 +165,17 @@ public:
   void run(PassRunner* runner, Module* module) override;
 };
 
+// Prints out a module in text format
+class TextPrinter : public Pass {
+  std::ostream& o;
+
+public:
+  TextPrinter() : o(std::cout) {}
+  TextPrinter(std::ostream& o) : o(o) {}
+
+  void run(PassRunner* runner, Module* module) override;
+};
+
 } // namespace wasm
 
 #endif // wasm_pass_h
