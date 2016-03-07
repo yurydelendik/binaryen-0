@@ -511,19 +511,18 @@ struct PrintText : public WasmVisitor<PrintText, void> {
   }
   void visitReturn(Return *curr) {
     if (pulling_pushes) {
-        expr_depth++;
-      if (curr->value) visit(curr->value);
-        expr_depth--;
+      if (curr->value && !curr->value->is<Nop>()) {
+        pulling_pushes = false;
+        pullPushes(curr->value);
+        doIndent(o, indent);
+        o << "push ";
+        visit(curr->value);
+        pulling_pushes = true;
+        printEndOfPush();
+      }
       return;
     }
-    if (expr_depth++) o << '(';
     o << "return";
-    if (!curr->value || curr->value->is<Nop>()) {
-      return;
-    }
-    o << ' ';
-    visit(curr->value);
-    if (--expr_depth) o << ')';
   }
   void visitHost(Host *curr) {
     switch (curr->op) {
