@@ -21,19 +21,11 @@
 #include "support/colors.h"
 #include "support/command-line.h"
 #include "support/file.h"
-#include "wasm.h"
-#include "pass.h"
+#include "wasm-printing.h"
 #include "wasm-s-parser.h"
 
 using namespace cashew;
 using namespace wasm;
-
-std::ostream& printWasmText(Module* module, std::ostream& o) {
-  PassRunner passRunner(nullptr);
-  passRunner.add<TextPrinter>(o);
-  passRunner.run(module);
-  return o;
-}
 
 int main(int argc, const char *argv[]) {
   Options options("wasm-as", "Assemble a .wast (WebAssembly text format) into a .txt (WebAssembly text format)");
@@ -61,7 +53,7 @@ int main(int argc, const char *argv[]) {
 
   if (options.debug) std::cerr << "writing to output..." << std::endl;
   Output output(options.extra["output"], options.debug);
-  printWasmText(&wasm, output.getStream());
+  printWas(&wasm, output.getStream());
 
   if (options.debug) std::cerr << "Done." << std::endl;
 }

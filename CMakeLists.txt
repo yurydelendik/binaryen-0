@@ -156,6 +156,7 @@ INSTALL(TARGETS wasm-as DESTINATION bin)
 SET(wasm_dis_SOURCES
   src/pass.cpp
   src/passes/Print.cpp
+  src/passes/PrintText.cpp
   src/wasm-dis.cpp
 )
 ADD_EXECUTABLE(wasm-dis
@@ -167,6 +168,7 @@ INSTALL(TARGETS wasm-dis DESTINATION bin)
 
 SET(wasm_text_SOURCES
   src/pass.cpp
+  src/passes/Print.cpp
   src/passes/PrintText.cpp
   src/wasm-text.cpp
 )

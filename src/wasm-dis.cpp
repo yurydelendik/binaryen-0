@@ -28,6 +28,8 @@ using namespace cashew;
 using namespace wasm;
 
 int main(int argc, const char *argv[]) {
+  bool printAsWas = false;
+
   Options options("wasm-dis", "Un-assemble a .wasm (WebAssembly binary format) into a .wast (WebAssembly text format)");
   options.add("--output", "-o", "Output file (stdout if not specified)",
               Options::Arguments::One,
@@ -35,6 +37,11 @@ int main(int argc, const char *argv[]) {
                 o->extra["output"] = argument;
                 Colors::disable();
               })
+      .add("--was", "", "Print as was",
+           Options::Arguments::Zero,
+           [&printAsWas](Options *, const std::string &) {
+             printAsWas = true;
+           })
       .add_positional("INFILE", Options::Arguments::One,
                       [](Options *o, const std::string &argument) {
                         o->extra["infile"] = argument;
@@ -50,7 +57,11 @@ int main(int argc, const char *argv[]) {
 
   if (options.debug) std::cerr << "Printing..." << std::endl;
   Output output(options.extra["output"], options.debug);
-  printWasm(&wasm, output.getStream());
+  if (printAsWas) {
+    printWas(&wasm, output.getStream());
+  } else {
+    printWasm(&wasm, output.getStream());
+  }
   output << '\n';
 
   if (options.debug) std::cerr << "Done." << std::endl;

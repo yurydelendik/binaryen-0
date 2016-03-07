@@ -31,6 +31,13 @@ inline std::ostream& printWasm(Module* module, std::ostream& o) {
 
 extern std::ostream& printWasm(Expression* expression, std::ostream& o);
 
+inline std::ostream& printWas(Module* module, std::ostream& o) {
+  PassRunner passRunner(nullptr);
+  passRunner.add<TextPrinter>(o);
+  passRunner.run(module);
+  return o;
+}
+
 }
 
 namespace std {
