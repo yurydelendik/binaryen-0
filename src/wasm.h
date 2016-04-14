@@ -748,9 +748,10 @@ public:
   Id _id;
 
   WasmType type; // the type of the expression: its *output*, not necessarily its input(s)
+  size_t debugLocationIndex; // the reference to debug location in the function, or 0
 
-  Expression() : _id(InvalidId), type(none) {}
-  Expression(Id id) : _id(id), type(none) {}
+  Expression() : _id(InvalidId), type(none), debugLocationIndex(0) {}
+  Expression(Id id) : _id(id), type(none), debugLocationIndex(0) {}
 
   template<class T>
   bool is() {
@@ -1062,6 +1063,16 @@ struct NameType {
   NameType(Name name, WasmType type) : name(name), type(type) {}
 };
 
+class DebugLocation {
+public:
+  size_t fileId;
+  size_t row;
+  size_t column;
+
+  DebugLocation(): fileId(0), row(0), column(0) {}
+  DebugLocation(size_t fileId, size_t row, size_t column) : fileId(fileId), row(row), column(column) {}
+};
+
 class Function {
 public:
   Name name;
@@ -1070,6 +1081,7 @@ public:
   std::vector<NameType> locals;
   Name type; // if null, it is implicit in params and result
   Expression *body;
+  std::vector<DebugLocation> debugLocations;
 
   Function() : result(none) {}
 };
@@ -1119,6 +1131,8 @@ public:
   std::vector<Import*> imports;
   std::vector<Export*> exports;
   std::vector<Function*> functions;
+
+  std::map<size_t, Name> debugFileMap;
 
   Table table;
   Memory memory;
@@ -1191,6 +1205,9 @@ public:
   }
   void addStart(const Name &s) {
     start = s;
+  }
+  void addDebugFile(size_t id, Name name) {
+    debugFileMap[id] = name;
   }
 
   void removeImport(Name name) {

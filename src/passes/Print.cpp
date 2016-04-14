@@ -28,6 +28,9 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
   std::ostream& o;
   unsigned indent = 0;
 
+  size_t lastDebugLocationId = 0;
+  std::vector<DebugLocation>* functionDebugLocations = nullptr;
+
   bool minify;
   const char *maybeSpace;
   const char *maybeNewLine;
@@ -63,6 +66,21 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
     !minify && doIndent(o, indent);
     visit(expression);
     o << maybeNewLine;
+  }
+  void visit(Expression *curr) {
+    if (curr->debugLocationIndex != lastDebugLocationId) {
+      lastDebugLocationId = curr->debugLocationIndex;
+      // skipping location id 0 or debug information is absent
+      if (functionDebugLocations && lastDebugLocationId) {
+        const DebugLocation& debugLocation = (*functionDebugLocations)[lastDebugLocationId];
+        o << "(;!loc " << debugLocation.fileId << ' ' << debugLocation.row << ' ' << debugLocation.column << ";)";
+        o << maybeNewLine;
+        !minify && doIndent(o, indent);
+      }
+    }
+    Visitor<PrintSExpression>::visit(curr);
+    // keeping previously set location for next siblings
+    lastDebugLocationId = curr->debugLocationIndex;
   }
   void visitBlock(Block *curr) {
     // special-case Block, because Block nesting (in their first element) can be incredibly deep
@@ -424,6 +442,7 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
   }
   void visitFunction(Function *curr) {
     printOpening(o, "func ", true) << curr->name;
+    functionDebugLocations = &(curr->debugLocations);
     if (curr->type.is()) {
       o << maybeSpace << "(type " << curr->type << ')';
     }
@@ -524,6 +543,13 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
     if (curr->table.names.size() > 0) {
       doIndent(o, indent);
       visitTable(&curr->table);
+      o << maybeNewLine;
+    }
+    for(auto const &item : curr->debugFileMap) {
+      doIndent(o, indent);
+      o << "(;!file " << item.first << " ";
+      printText(o, item.second.str);
+      o << ";)";
       o << maybeNewLine;
     }
     for (auto& child : curr->functions) {

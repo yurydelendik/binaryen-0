@@ -158,6 +158,11 @@ class S2WasmBuilder {
     abort();              \
   }
 
+  bool peek(const char *pattern) {
+    size_t size = strlen(pattern);
+    return strncmp(s, pattern, size) == 0;
+  }
+
   // match and skip the pattern, if matched
   bool match(const char *pattern) {
     size_t size = strlen(pattern);
@@ -479,6 +484,12 @@ class S2WasmBuilder {
 
   void parseToplevelSection() {
     auto section = getCommaSeparated();
+    // Skipping .debug_ sections
+    if (!strncmp(section.c_str(), ".debug_", strlen(".debug_"))) {
+      const char *next = strstr(s, ".section");
+      s = next ? next : s + strlen(s);
+      return;
+    }
     // Initializers are anything in a section whose name begins with .init_array
     if (!strncmp(section.c_str(), ".init_array", strlen(".init_array") - 1)) parseInitializer();
     s = strchr(s, '\n');
@@ -555,6 +566,36 @@ class S2WasmBuilder {
 
     mustMatch(":");
 
+    std::vector<DebugLocation> debugLocations;
+    debugLocations.emplace_back(); // reserve 0 slot
+    size_t currentDebugLocationIndex = 0;
+
+    auto recordFile = [&]() {
+      if (debug) dump("file");
+      size_t fileId = getInt();
+      skipWhitespace();
+      std::vector<char> quoted = getQuoted();
+      Name filename(std::string(quoted.begin(), quoted.end()));
+      wasm.addDebugFile(fileId, filename);
+      s = strchr(s, '\n');
+    };
+    auto recordLoc = [&]() {
+      if (debug) dump("loc");
+      size_t fileId = getInt();
+      skipWhitespace();
+      size_t row = getInt();
+      skipWhitespace();
+      size_t column = getInt();
+      debugLocations.emplace_back(fileId, row, column);
+      currentDebugLocationIndex++;
+      s = strchr(s, '\n');
+    };
+    auto recordLabel = [&]() {
+      if (debug) dump("label");
+      // TODO track and create map of labels and their ranges for our AST
+      s = strchr(s, '\n');
+    };
+
     unsigned nextId = 0;
     auto getNextId = [&nextId]() {
       return cashew::IString(('$' + std::to_string(nextId++)).c_str(), false);
@@ -587,6 +628,15 @@ class S2WasmBuilder {
           skipWhitespace();
           if (!match(",")) break;
         }
+      } else if (match(".file")) {
+        recordFile();
+        skipWhitespace();
+      } else if (match(".loc")) {
+        recordLoc();
+        skipWhitespace();
+      } else if (peek(".Lfunc_begin")) {
+        recordLabel();
+        skipWhitespace();
       } else break;
     }
     Function* func = builder.makeFunction(name, std::move(params), resultType, std::move(locals));
@@ -640,6 +690,7 @@ class S2WasmBuilder {
           auto curr = allocator.alloc<GetLocal>();
           curr->name = getStrToSep();
           curr->type = localTypes[curr->name];
+          curr->debugLocationIndex = currentDebugLocationIndex;
           inputs[i] = curr;
         }
         if (*s == ')') s++; // tolerate 0(argument) syntax, where we started at the 'a'
@@ -667,6 +718,7 @@ class S2WasmBuilder {
         set->name = assign;
         set->value = curr;
         set->type = curr->type;
+        set->debugLocationIndex = currentDebugLocationIndex;
         addToBlock(set);
       }
     };
@@ -696,6 +748,7 @@ class S2WasmBuilder {
       auto inputs = getInputs(2);
       curr->left = inputs[0];
       curr->right = inputs[1];
+      curr->debugLocationIndex = currentDebugLocationIndex;
       curr->finalize();
       assert(curr->type == type);
       setOutput(curr, assign);
@@ -707,12 +760,14 @@ class S2WasmBuilder {
       curr->op = op;
       curr->value = getInput();
       curr->type = type;
+      curr->debugLocationIndex = currentDebugLocationIndex;
       setOutput(curr, assign);
     };
     auto makeHost = [&](HostOp op) {
       Name assign = getAssign();
       auto curr = allocator.alloc<Host>();
       curr->op = op;
+      curr->debugLocationIndex = currentDebugLocationIndex;
       setOutput(curr, assign);
     };
     auto makeHost1 = [&](HostOp op) {
@@ -720,12 +775,14 @@ class S2WasmBuilder {
       auto curr = allocator.alloc<Host>();
       curr->op = op;
       curr->operands.push_back(getInput());
+      curr->debugLocationIndex = currentDebugLocationIndex;
       setOutput(curr, assign);
     };
     auto makeLoad = [&](WasmType type) {
       skipComma();
       auto curr = allocator.alloc<Load>();
       curr->type = type;
+      curr->debugLocationIndex = currentDebugLocationIndex;
       int32_t bytes = getInt() / CHAR_BIT;
       curr->bytes = bytes > 0 ? bytes : getWasmTypeSize(type);
       curr->signed_ = match("_s");
@@ -746,6 +803,7 @@ class S2WasmBuilder {
       skipComma();
       auto curr = allocator.alloc<Store>();
       curr->type = type;
+      curr->debugLocationIndex = currentDebugLocationIndex;
       int32_t bytes = getInt() / CHAR_BIT;
       curr->bytes = bytes > 0 ? bytes : getWasmTypeSize(type);
       Name assign = getAssign();
@@ -772,6 +830,7 @@ class S2WasmBuilder {
       curr->condition = inputs[2];
       assert(curr->condition->type == i32);
       curr->type = type;
+      curr->debugLocationIndex = currentDebugLocationIndex;
       setOutput(curr, assign);
     };
     auto makeCall = [&](WasmType type) {
@@ -805,6 +864,7 @@ class S2WasmBuilder {
           curr = specific;
         }
         curr->type = type;
+        curr->debugLocationIndex = currentDebugLocationIndex;
         skipWhitespace();
         if (*s == ',') {
           skipComma();
@@ -843,6 +903,7 @@ class S2WasmBuilder {
               // may be a relocation
               auto curr = allocator.alloc<Const>();
               curr->type = curr->value.type = i32;
+              curr->debugLocationIndex = currentDebugLocationIndex;
               getConst((uint32_t*)curr->value.geti32Ptr());
               setOutput(curr, assign);
             } else {
@@ -1003,20 +1064,21 @@ class S2WasmBuilder {
       } else if (match("block")) {
         auto curr = allocator.alloc<Block>();
         curr->name = getNextLabel();
+        curr->debugLocationIndex = currentDebugLocationIndex;
         addToBlock(curr);
         bstack.push_back(curr);
       } else if (match("end_block")) {
         bstack.pop_back();
-      } else if (match(".LBB")) {
-        s = strchr(s, '\n');
       } else if (match("loop")) {
         auto curr = allocator.alloc<Loop>();
         addToBlock(curr);
         curr->in = getNextLabel();
         curr->out = getNextLabel();
+        curr->debugLocationIndex = currentDebugLocationIndex;
         auto block = allocator.alloc<Block>();
         block->name = curr->out; // temporary, fake - this way, on bstack we have the right label at the right offset for a br
         curr->body = block;
+        curr->debugLocationIndex = currentDebugLocationIndex;
         loopBlocks.push_back(block);
         bstack.push_back(block);
         bstack.push_back(curr);
@@ -1032,6 +1094,7 @@ class S2WasmBuilder {
         assert(curr->targets.size() > 0);
         curr->default_ = curr->targets.back();
         curr->targets.pop_back();
+        curr->debugLocationIndex = currentDebugLocationIndex;
         addToBlock(curr);
       } else if (match("br")) {
         auto curr = allocator.alloc<Break>();
@@ -1041,6 +1104,7 @@ class S2WasmBuilder {
           hasCondition = true;
         }
         curr->name = getBranchLabel(getInt());
+        curr->debugLocationIndex = currentDebugLocationIndex;
         if (hasCondition) {
           skipComma();
           curr->condition = getInput();
@@ -1060,22 +1124,32 @@ class S2WasmBuilder {
         skipComma();
         curr->value = getInput();
         curr->type = curr->value->type;
+        curr->debugLocationIndex = currentDebugLocationIndex;
         setOutput(curr, assign);
       } else if (match("return")) {
         addToBlock(builder.makeReturn(*s == '$' ? getInput() : nullptr));
       } else if (match("unreachable")) {
-        addToBlock(allocator.alloc<Unreachable>());
+        auto curr = allocator.alloc<Unreachable>();
+        curr->debugLocationIndex = currentDebugLocationIndex;
+        addToBlock(curr);
       } else if (match("memory_size")) {
         makeHost(MemorySize);
       } else if (match("grow_memory")) {
         makeHost1(GrowMemory);
-      } else if (match(".Lfunc_end")) {
+      } else if (peek(".Lfunc_end")) {
+        recordLabel();
         s = strchr(s, '\n');
         s++;
         s = strchr(s, '\n');
         break; // the function is done
       } else if (match(".endfunc")) {
         break; // the function is done
+      } else if (match(".file")) {
+        recordFile();
+      } else if (match(".loc")) {
+        recordLoc();
+      } else if (peek(".L") && strchr(s, ':') < strchr(s, '\n')) {
+        recordLabel();
       } else {
         abort_on("function element");
       }
@@ -1088,6 +1162,7 @@ class S2WasmBuilder {
       block->name = Name();
     }
     func->body->dynCast<Block>()->finalize();
+    func->debugLocations.swap(debugLocations);
     wasm.addFunction(func);
   }
 
